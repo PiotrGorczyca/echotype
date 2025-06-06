@@ -1,0 +1,9 @@
+{
+  "openai_api_key": "sk-your-openai-api-key-here",
+  "hotkey_combination": "Ctrl+Shift+S",
+  "audio_device": "default",
+  "recording_duration_seconds": 30,
+  "whisper_model": "whisper-1",
+  "auto_paste_enabled": true,
+  "visualization_enabled": true
+} 

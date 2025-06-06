@@ -1,0 +1,17 @@
+{
+  "openai_api_key": "your-api-key-here",
+  "hotkey_combination": "Ctrl+Shift+S",
+  "audio_device": "default",
+  "recording_duration_seconds": 5,
+  "whisper_model": "whisper-1",
+  "auto_paste_enabled": true,
+  "visualization_enabled": true,
+  "visualization_theme": "default",
+  "api_timeout_seconds": 30,
+  "max_retries": 3,
+  "audio_format": "wav",
+  "audio_sample_rate": 16000,
+  "audio_channels": 1,
+  "paste_delay_ms": 100,
+  "temp_directory": "/tmp/echotype"
+} 
