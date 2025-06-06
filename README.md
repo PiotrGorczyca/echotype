@@ -1,6 +1,6 @@
 # 🎙️ EchoType - Voice Transcription Application
 
-A powerful Linux/X11 application built in Zig that captures voice recordings via global hotkey, provides real-time audio visualization, transcribes speech using OpenAI Whisper API, and automatically pastes the transcription at your cursor location.
+A Linux/X11 application built in Zig that captures voice recordings via global hotkey, provides real-time audio visualization, transcribes speech using OpenAI Whisper API, and automatically pastes the transcription at your cursor location.
 
 ## ✨ Features
 
@@ -10,7 +10,7 @@ A powerful Linux/X11 application built in Zig that captures voice recordings via
 - **Smart Auto-Paste**: Automatically pastes transcription at cursor location
 - **Cross-Application Support**: Works with any text input field
 - **Configurable Settings**: Customize hotkeys, audio devices, and behavior
-- **Multiple Audio Backends**: Supports both ALSA and PulseAudio
+- **PortAudio Backend**: Cross-platform audio recording support
 
 ## 🚀 Quick Start
 
@@ -19,6 +19,8 @@ A powerful Linux/X11 application built in Zig that captures voice recordings via
 - Linux system with X11 (GNOME, KDE, i3, etc.)
 - Zig compiler (latest stable version)
 - OpenAI API key
+- PortAudio library
+- X11 development libraries
 
 ### Installation
 
@@ -57,29 +59,33 @@ This project follows a structured development plan. Current status:
 - [x] X11 FFI bindings
 - [x] Development environment setup
 
-### ✅ Phase 2: Core Modules (Completed)
+### 🟡 Phase 2: Core Modules (In Progress)
 - [x] **Module 1: Global Hotkey System** ✅
-- [x] **Module 2: Audio Recording System** ✅
+- [x] **Module 2: Audio Recording System** ✅ (PortAudio-based)
 - [x] **Module 3: Real-time Visualization** ✅
-- [x] **Module 4: OpenAI Whisper Integration** ✅ **NEW!**
-- [x] **Module 5: Clipboard & Auto-Paste** ✅ **NEW!**
+- [x] **Module 4: OpenAI Whisper Integration** ✅
+- [x] **Module 5: Clipboard & Auto-Paste** ✅
 
-### ✅ Phase 3: Integration & Main Application (Completed)
-- [x] **Live Transcription Workflow** ✅ **NEW!**
+### 🟡 Phase 3: Integration & Main Application (Partially Complete)
+- [x] **Live Transcription Workflow** ✅
 - [x] **Memory Management** ✅
 - [x] **Error Handling** ✅
+- [ ] **Performance Optimization** (In Progress)
+- [ ] **Enhanced Error Recovery** (In Progress)
 
-### 🎯 Current Status: **FULLY FUNCTIONAL**
-The application now supports complete live transcription workflow:
+### 🎯 Current Status: **FUNCTIONAL BETA**
+The application supports core live transcription workflow:
 - ✅ Hotkey detection and recording control
-- ✅ Audio recording to WAV files  
+- ✅ Audio recording via PortAudio to WAV files  
 - ✅ Real-time transcription via OpenAI Whisper API
 - ✅ Automatic clipboard copying and cursor pasting
-- ✅ Proper memory management and error handling
+- ✅ Basic memory management and error handling
+- ⚠️ Some edge cases and optimizations still being worked on
 
 ### ⏳ Future Enhancements
 - **Enhanced UI**: Better visualization and status indicators
 - **Performance Optimization**: Reduce latency and resource usage
+- **Additional Audio Backends**: ALSA/PulseAudio direct support
 - **Additional Features**: Custom vocabulary, multiple languages
 - **Packaging**: Distribution packages for major Linux distros
 
@@ -91,22 +97,31 @@ echotype/
 │   ├── main.zig              # Application entry point
 │   ├── config.zig            # Configuration management
 │   ├── hotkey.zig            # Global hotkey handling
-│   ├── audio.zig             # Audio recording interface
-│   ├── audio_backends/       # Platform-specific audio implementations
-│   │   ├── alsa.zig         # ALSA backend
-│   │   └── pulse.zig        # PulseAudio backend
+│   ├── audio.zig             # Audio recording (PortAudio-based)
+│   ├── portaudio_bindings.zig # PortAudio FFI bindings
+│   ├── wav_writer.zig        # WAV file creation
 │   ├── visualizer.zig        # Real-time audio visualization
 │   ├── whisper_client.zig    # OpenAI Whisper API client
 │   ├── clipboard.zig         # Clipboard management
 │   ├── x11_bindings.zig      # X11 FFI bindings
 │   └── tests/               # Unit tests
 ├── config/
-│   └── default.json         # Default configuration
+│   ├── default.json         # Default configuration
+│   └── example.json         # Configuration examples
 ├── scripts/
 │   ├── setup.sh             # Development setup script
-│   └── install.sh           # Installation script
+│   ├── test.sh              # General testing script
+│   ├── test-api.sh          # API testing script
+│   ├── test-hotkey-flow.sh  # Hotkey workflow tests
+│   └── test-transcription.sh # Transcription tests
+├── docs/
+│   ├── DEVELOPMENT_PLAN.md  # Detailed development roadmap
+│   ├── TROUBLESHOOTING.md   # Troubleshooting guide
+│   ├── AUDIO_IMPLEMENTATION.md # Audio system documentation
+│   ├── HOTKEY_IMPLEMENTATION.md # Hotkey system documentation
+│   ├── BUILD_FIXES.md       # Build system fixes
+│   └── BUG_FIXES.md        # Bug fixes documentation
 ├── build.zig                # Zig build configuration
-├── DEVELOPMENT_PLAN.md      # Detailed development roadmap
 └── README.md               # This file
 ```
 
@@ -136,7 +151,15 @@ Location: `~/.config/echotype/config.json`
   "recording_duration_seconds": 5,
   "whisper_model": "whisper-1",
   "auto_paste_enabled": true,
-  "visualization_enabled": true
+  "visualization_enabled": true,
+  "visualization_theme": "default",
+  "api_timeout_seconds": 30,
+  "max_retries": 3,
+  "audio_format": "wav",
+  "audio_sample_rate": 16000,
+  "audio_channels": 1,
+  "paste_delay_ms": 100,
+  "temp_directory": "/tmp/echotype"
 }
 ```
 
@@ -155,14 +178,22 @@ zig build test
 
 # Run application
 zig build run
+
+# Test individual modules
+zig build test-hotkey
+zig build test-audio
+zig build test-visualizer
+zig build test-follow
 ```
 
 ### System Dependencies
 
 The application requires these system libraries:
-- **X11 libraries**: `libX11-dev`, `libXtst-dev`, `libXfixes-dev`
-- **Audio libraries**: `libasound2-dev` (ALSA) and/or `libpulse-dev` (PulseAudio)
+- **X11 libraries**: `libX11-dev`, `libXtst-dev`, `libXfixes-dev`, `libXrender-dev`
+- **Audio library**: `libportaudio2` and `portaudio19-dev`
 - **Build tools**: Standard C compiler and development tools
+
+The setup script handles installation of these dependencies automatically.
 
 ### Development Workflow
 
@@ -185,7 +216,7 @@ The application requires these system libraries:
    - A visualization window appears near your cursor (if enabled)
 
 3. **Speak naturally**: Record your voice
-   - The application captures high-quality audio
+   - The application captures high-quality audio via PortAudio
    - Press the hotkey again to stop recording
 
 4. **Automatic transcription**: 
@@ -209,7 +240,7 @@ Application initialized. Listening for hotkey: Ctrl+Shift+S
 [Speak your message]
 
 [Press Ctrl+Shift+S again]
-Recording completed. Sending to Whisper API...
+Recording completed. Transcribing...
 Transcription: Hello, this is a test of the live transcription feature.
 Text copied to clipboard successfully
 Pasted using xdotool
@@ -228,6 +259,12 @@ If you're experiencing issues, run the diagnostic scripts:
 
 # Test OpenAI API configuration
 ./scripts/test-api.sh
+
+# Test hotkey workflow
+./scripts/test-hotkey-flow.sh
+
+# Test transcription functionality
+./scripts/test-transcription.sh
 ```
 
 ### Common Issues
@@ -250,21 +287,21 @@ If you're experiencing issues, run the diagnostic scripts:
 
 **Audio recording issues**
 - Check your microphone permissions
-- Verify audio device configuration
-- Test with different audio backends (ALSA/PulseAudio)
+- Verify PortAudio can access your audio device
+- Run `./scripts/test.sh` to diagnose audio setup
 
 **API transcription fails**
 - Verify your OpenAI API key is correct
 - Check your internet connection
 - Ensure you have sufficient API credits
-- See `TROUBLESHOOTING.md` for detailed debugging steps
+- See `docs/TROUBLESHOOTING.md` for detailed debugging steps
 
 ## 🎨 Technical Architecture
 
 ### Core Technologies
 - **Language**: Zig (for performance and memory safety)
 - **Windowing**: X11 (direct Xlib integration via FFI)
-- **Audio**: ALSA/PulseAudio (multi-backend support)
+- **Audio**: PortAudio (cross-platform audio recording)
 - **HTTP**: Zig standard library HTTP client
 - **API**: OpenAI Whisper API for transcription
 
@@ -279,10 +316,11 @@ If you're experiencing issues, run the diagnostic scripts:
 
 We welcome contributions! Please see our development plan for current priorities:
 
-1. **Week 1-2**: Core hotkey and audio systems
-2. **Week 3-4**: Visualization and API integration
-3. **Week 5-6**: Clipboard management and integration
-4. **Week 7-9**: Testing, documentation, and polish
+1. **Current Phase**: Integration and polish
+2. **Next Priority**: Performance optimization and error handling
+3. **Future Work**: Additional audio backends and enhanced UI
+
+See `docs/DEVELOPMENT_PLAN.md` for detailed roadmap.
 
 ## 📄 License
 
@@ -292,8 +330,10 @@ We welcome contributions! Please see our development plan for current priorities
 
 - [Zig Language](https://ziglang.org/)
 - [OpenAI Whisper API](https://platform.openai.com/docs/guides/speech-to-text)
-- [Development Plan](DEVELOPMENT_PLAN.md)
+- [PortAudio](http://www.portaudio.com/)
+- [Development Plan](docs/DEVELOPMENT_PLAN.md)
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md)
 
 ---
 
-**Note**: This project is currently in active development. The main application structure is established, but individual modules are being implemented according to the development timeline. See `DEVELOPMENT_PLAN.md` for detailed progress and next steps. 
+**Note**: This project is in active development and currently in functional beta state. The core transcription workflow is working, but some edge cases and optimizations are still being addressed. See `docs/DEVELOPMENT_PLAN.md` for detailed progress and next steps. 

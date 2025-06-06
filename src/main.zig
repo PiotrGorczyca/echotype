@@ -87,6 +87,20 @@ pub fn main() !void {
         // Update visualizer position if following cursor
         visualizer_window.updatePosition() catch {};
 
+        // Animate spinner if visualizer is active
+        visualizer_window.animate() catch {};
+
+        // Check if transcription completed
+        if (transcription_completed) {
+            if (transcription_thread) |thread| {
+                thread.join();
+                transcription_thread = null;
+            }
+            handleTranscriptionResult(allocator, &visualizer_window, &clipboard_manager) catch |err| {
+                print("Error handling transcription result: {}\n", .{err});
+            };
+        }
+
         // Update the previous state for next iteration
         hotkey_was_pressed = hotkey_is_pressed;
 
@@ -108,12 +122,18 @@ fn startRecordingWorkflow(
     print("🔴 Recording started! Press hotkey again to stop.\n", .{});
 }
 
+// Global state for async transcription
+var transcription_thread: ?std.Thread = null;
+var transcription_result: ?[]u8 = null;
+var transcription_error: bool = false;
+var transcription_completed: bool = false;
+
 fn finishRecordingWorkflow(
     allocator: std.mem.Allocator,
     audio_recorder: *audio.AudioRecorder,
     visualizer_window: *visualizer.Visualizer,
     whisper_api: *whisper_client.WhisperClient,
-    clipboard_manager: *clipboard.ClipboardManager,
+    _: *clipboard.ClipboardManager,
 ) !void {
 
     // 1. Stop recording and get audio file
@@ -124,31 +144,72 @@ fn finishRecordingWorkflow(
     try visualizer_window.setState(.transcribing);
     print("Recording completed. Transcribing...\n", .{});
 
-    // 3. Send to Whisper API for transcription
-    const transcription = whisper_api.transcribe(audio_file_path) catch |err| {
+    // 3. Start transcription in background thread
+    const TranscriptionContext = struct {
+        allocator: std.mem.Allocator,
+        audio_file_path: []const u8,
+        whisper_api: *whisper_client.WhisperClient,
+    };
+
+    const ctx = try allocator.create(TranscriptionContext);
+    ctx.* = TranscriptionContext{
+        .allocator = allocator,
+        .audio_file_path = try allocator.dupe(u8, audio_file_path),
+        .whisper_api = whisper_api,
+    };
+
+    transcription_thread = try std.Thread.spawn(.{}, transcribeInBackground, .{ctx});
+}
+
+fn transcribeInBackground(ctx: anytype) void {
+    defer {
+        ctx.allocator.free(ctx.audio_file_path);
+        ctx.allocator.destroy(ctx);
+    }
+
+    const transcription = ctx.whisper_api.transcribe(ctx.audio_file_path) catch |err| {
         print("Error transcribing audio: {}\n", .{err});
-        visualizer_window.hide();
-        return;
-    };
-    defer allocator.free(transcription); // Free the transcription memory when done
-
-    print("Transcription: {s}\n", .{transcription});
-
-    // 4. Copy transcription to clipboard (but don't auto-paste)
-    clipboard_manager.copyText(transcription) catch |err| {
-        print("Error copying to clipboard: {}\n", .{err});
-        visualizer_window.hide();
+        transcription_error = true;
+        transcription_completed = true;
         return;
     };
 
-    // 5. Show finished state
-    try visualizer_window.setState(.finished);
-    print("✅ Transcription copied to clipboard!\n", .{});
-    print("📋 You can now paste it anywhere with Ctrl+V\n", .{});
+    transcription_result = @constCast(transcription);
+    transcription_completed = true;
+}
 
-    // 6. Hide visualizer after a few seconds
-    std.time.sleep(3_000_000_000); // 3 seconds
-    visualizer_window.hide();
+fn handleTranscriptionResult(
+    allocator: std.mem.Allocator,
+    visualizer_window: *visualizer.Visualizer,
+    clipboard_manager: *clipboard.ClipboardManager,
+) !void {
+    if (transcription_error) {
+        print("Transcription failed\n", .{});
+        visualizer_window.hide();
+        transcription_error = false;
+        transcription_completed = false;
+        return;
+    }
+
+    if (transcription_result) |transcription| {
+        defer allocator.free(transcription);
+        defer transcription_result = null;
+        defer transcription_completed = false;
+
+        print("Transcription: {s}\n", .{transcription});
+
+        // Copy transcription to clipboard
+        clipboard_manager.copyText(transcription) catch |err| {
+            print("Error copying to clipboard: {}\n", .{err});
+            visualizer_window.hide();
+            return;
+        };
+
+        // Show finished state
+        try visualizer_window.setState(.finished);
+        print("✅ Transcription copied to clipboard!\n", .{});
+        print("📋 You can now paste it anywhere with Ctrl+V\n", .{});
+    }
 }
 
 // Test function for development

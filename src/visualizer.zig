@@ -25,6 +25,8 @@ pub const Visualizer = struct {
     follow_cursor: bool,
     last_cursor_x: i32,
     last_cursor_y: i32,
+    rotation_angle: f32,
+    finished_start_time: ?i64,
 
     const Self = @This();
 
@@ -36,11 +38,13 @@ pub const Visualizer = struct {
             .gc = undefined,
             .is_visible = false,
             .current_state = .hidden,
-            .window_width = 150,
-            .window_height = 60,
+            .window_width = 40,
+            .window_height = 40,
             .follow_cursor = false,
             .last_cursor_x = 0,
             .last_cursor_y = 0,
+            .rotation_angle = 0.0,
+            .finished_start_time = null,
         };
     }
 
@@ -165,26 +169,47 @@ pub const Visualizer = struct {
 
         _ = c.XSetForeground(self.display, self.gc, color.pixel);
 
-        // Draw a filled circle
-        const circle_size = 30;
-        const circle_x = @as(c_int, @intCast((self.window_width - circle_size) / 2));
-        const circle_y = 5;
+        const center_x = @as(c_int, @intCast(self.window_width / 2));
+        const center_y = @as(c_int, @intCast(self.window_height / 2));
 
-        _ = c.XFillArc(self.display, self.window, self.gc, circle_x, circle_y, circle_size, circle_size, 0, 360 * 64 // X11 uses 64ths of a degree
-        );
+        if (self.current_state == .finished) {
+            // Draw checkmark
+            _ = c.XSetLineAttributes(self.display, self.gc, 3, c.LineSolid, c.CapRound, c.JoinRound);
 
-        // Draw text
-        _ = c.XSetForeground(self.display, self.gc, c.XWhitePixel(self.display, screen));
+            // Checkmark coordinates (relative to center)
+            const check_size = 12;
+            const x1 = center_x - check_size;
+            const y1 = center_y;
+            const x2 = center_x - 4;
+            const y2 = center_y + 8;
+            const x3 = center_x + check_size;
+            const y3 = center_y - 8;
 
-        const text = switch (self.current_state) {
-            .recording => "Recording...",
-            .transcribing => "Transcribing...",
-            .finished => "Ready to paste!",
-            .hidden => "",
-        };
+            // Draw checkmark as two line segments
+            _ = c.XDrawLine(self.display, self.window, self.gc, x1, y1, x2, y2);
+            _ = c.XDrawLine(self.display, self.window, self.gc, x2, y2, x3, y3);
+        } else {
+            // Draw spinning arcs for recording/transcribing states
+            _ = c.XSetLineAttributes(self.display, self.gc, 3, c.LineSolid, c.CapRound, c.JoinRound);
 
-        if (text.len > 0) {
-            _ = c.XDrawString(self.display, self.window, self.gc, 10, 50, text.ptr, @intCast(text.len));
+            const spinner_radius = 12;
+            const arc_length = 90 * 64; // 90 degrees in X11 units (64ths of a degree)
+
+            // Update rotation angle for animation
+            self.rotation_angle += 5.0; // Slower rotation speed
+            if (self.rotation_angle >= 360.0) {
+                self.rotation_angle -= 360.0;
+            }
+
+            // Convert angle to X11 format (64ths of a degree)
+            const start_angle = @as(c_int, @intFromFloat(self.rotation_angle * 64.0));
+
+            // Draw spinning arc
+            _ = c.XDrawArc(self.display, self.window, self.gc, center_x - spinner_radius, center_y - spinner_radius, spinner_radius * 2, spinner_radius * 2, start_angle, arc_length);
+
+            // Draw a second arc for fuller spinner effect
+            const second_start = start_angle + (180 * 64);
+            _ = c.XDrawArc(self.display, self.window, self.gc, center_x - spinner_radius, center_y - spinner_radius, spinner_radius * 2, spinner_radius * 2, second_start, arc_length);
         }
 
         _ = c.XFlush(self.display);
@@ -195,9 +220,9 @@ pub const Visualizer = struct {
 
         const pos = try self.getCursorPosition();
 
-        // Position window near cursor (offset to avoid covering it)
+        // Position window near cursor (offset to avoid covering it) - moved higher
         const window_x = pos.x + 20;
-        const window_y = pos.y - 80;
+        const window_y = pos.y - 10;
 
         _ = c.XMoveWindow(self.display, self.window, window_x, window_y);
         _ = c.XMapWindow(self.display, self.window);
@@ -215,6 +240,14 @@ pub const Visualizer = struct {
         if (!self.is_visible and state != .hidden) return;
 
         self.current_state = state;
+
+        // Start timer for finished state
+        if (state == .finished) {
+            self.finished_start_time = std.time.milliTimestamp();
+        } else {
+            self.finished_start_time = null;
+        }
+
         try self.drawState();
     }
 
@@ -229,7 +262,7 @@ pub const Visualizer = struct {
 
         if (dx > 5 or dy > 5) {
             const window_x = pos.x + 20;
-            const window_y = pos.y - 80;
+            const window_y = pos.y - 10;
 
             _ = c.XMoveWindow(self.display, self.window, window_x, window_y);
             _ = c.XFlush(self.display);
@@ -237,6 +270,24 @@ pub const Visualizer = struct {
             self.last_cursor_x = pos.x;
             self.last_cursor_y = pos.y;
         }
+    }
+
+    pub fn animate(self: *Self) !void {
+        if (!self.is_visible or self.current_state == .hidden) {
+            return;
+        }
+
+        // Check if finished state should be auto-hidden
+        if (self.current_state == .finished and self.finished_start_time != null) {
+            const elapsed = std.time.milliTimestamp() - self.finished_start_time.?;
+            if (elapsed >= 3000) { // 3 seconds
+                self.hide();
+                return;
+            }
+        }
+
+        // Redraw to update spinner animation (also for finished state to continue following cursor)
+        try self.drawState();
     }
 
     pub fn hide(self: *Self) void {
